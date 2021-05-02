@@ -91,8 +91,6 @@ edx <- edx %>% mutate(date = date(datetime), year = year(datetime), month = mont
 
 edx <- edx %>% group_by(movieId) %>% mutate(num_of_ratings = n(), sum_of_ratings = sum(rating)) %>% mutate(avg_rating = sum_of_ratings / num_of_ratings) %>% ungroup()
 
-edx <- edx %>% mutate(movieId = as.factor(movieId), userId = as.factor(userId), month = as.factor(month), year = as.factor(year), hour = as.factor(hour))
-
 summary(edx)
 
 edx %>% arrange(desc(num_of_ratings)) %>% select(movieId, title, sum_of_ratings, num_of_ratings, avg_rating) %>% unique()
@@ -107,14 +105,20 @@ heatMapPalette <- colorRampPalette(rev(brewer.pal(11, "RdBu")))
 
 set.seed(1, sample.kind = "Rounding")
 
-test_index <- createDataPartition(edx$rating, times = 1, p = 0.7, list = FALSE)
+test_index <- createDataPartition(edx$rating, times = 1, p = 0.2, list = FALSE)
 
-test_set <- edx[test_index,]
 train_set <- edx[-test_index,]
+test_set <- edx[test_index,]
+
+test_set <- test_set %>%semi_join(train_set, by = "movieId") %>% semi_join(train_set, by = "userId")
+
+RMSE <- function(predicted, actual) {
+  sqrt(mean((predicted - actual)^2))
+}
 
 ## Explore more relevant predictors
 
-cor(train_set$sum_of_ratings, train_set$rating)
+
 
 ## Regularization
 
@@ -122,15 +126,25 @@ cor(train_set$sum_of_ratings, train_set$rating)
 
 ## Train models
 
-fit.lm1 <- train_set %>% train(rating ~ movieId + userId, data = ., method = "lm")
+unique(train_set$rating)
+
+mu <- mean(train_set$rating)
+
+b_m <- train_set %>% group_by(movieId) %>% summarize(b_m = mean(as.numeric(rating) - mu))
+
+predicted_ratings <- mu + test_set %>% 
+  left_join(b_m, by='movieId') %>%
+  pull(b_m)
+
+b_m
+
+RMSE(predicted_ratings, test_set$rating)
+
+fit.qda <- train_set %>% train(rating ~ movieId + userId + hour, data = ., method = "qda")
 
 fit.rpart1 <- train_set %>% train(rating ~ movieId + userId + month + weekday + hour, data = ., method = "rpart")
 
 ## Test models
-
-RMSE <- function(predicted, actual) {
-  sqrt(mean((predicted - actual)^2))
-}
 
 pred.lm1 <- predict(fit.lm1, test_set)
 RMSE(pred.lm1, test_set$rating)

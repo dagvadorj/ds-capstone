@@ -91,6 +91,8 @@ edx <- edx %>% mutate(date = date(datetime), year = year(datetime), month = mont
 
 edx <- edx %>% group_by(movieId) %>% mutate(num_of_ratings = n(), sum_of_ratings = sum(rating)) %>% mutate(avg_rating = sum_of_ratings / num_of_ratings) %>% ungroup()
 
+edx <- edx %>% mutate(movieId = as.factor(movieId), userId = as.factor(userId), month = as.factor(month), year = as.factor(year), hour = as.factor(hour))
+
 summary(edx)
 
 edx %>% arrange(desc(num_of_ratings)) %>% select(movieId, title, sum_of_ratings, num_of_ratings, avg_rating) %>% unique()

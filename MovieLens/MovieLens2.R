@@ -12,9 +12,6 @@ library(tidyverse)
 library(caret)
 library(data.table)
 library(lubridate)
-library(RColorBrewer)
-library(LiblineaR)
-library(randomForest)
 
 # MovieLens 10M dataset:
 # https://grouplens.org/datasets/movielens/10m/
@@ -23,10 +20,12 @@ library(randomForest)
 dl <- tempfile()
 download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
 
-ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
-                 col.names = c("userId", "movieId", "rating", "timestamp"))
-
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))), col.names = c("userId", "movieId", "rating", "timestamp"))
 movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+
+ratings <- fread(text = gsub("::", "\t", readLines("ml-10M100K/ratings.dat")), col.names = c("userId", "movieId", "rating", "timestamp"))
+movies <- str_split_fixed(readLines("ml-10M100K/movies.dat"), "\\::", 3)
+
 colnames(movies) <- c("movieId", "title", "genres")
 
 # if using R 3.6 or earlier:
@@ -40,6 +39,20 @@ movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
 
 
 movielens <- left_join(ratings, movies, by = "movieId")
+
+str_extract(movielens$title, regex("\\((\\d{4})"))
+
+movielens <- movielens %>% mutate(releaseYear = as.integer(str_extract(movielens$title, regex("(\\d{4}$)"))))
+
+movielens <- movielens %>% mutate(datetime = lubridate::as_datetime(timestamp))
+
+movielens <- movielens %>% mutate(year = year(datetime), month = month(datetime), week = week(datetime), weekday = wday(datetime), hour = hour(datetime), firstGenre = map(str_split(genres, "\\|"), 1)) %>% mutate(firstGenre = as.factor(unlist(firstGenre)))
+
+movielens <- movielens %>% group_by(movieId) %>% mutate(avgRating = as.integer(sum(rating) / n())) %>% ungroup()
+
+movielens <- movielens %>% select(-datetime, -genres, -timestamp)
+
+summary(movielens)
 
 # Validation set will be 10% of MovieLens data
 set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
@@ -60,15 +73,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
 ## Define predictors
 
-edx <- edx %>% mutate(datetime = lubridate::as_datetime(timestamp))
 
-edx <- edx %>% mutate(year = year(datetime), month = month(datetime), week = week(datetime), weekday = wday(datetime), hour = hour(datetime), first_genre = map(str_split(genres, "\\|"), 1)) %>% mutate(first_genre = as.factor(unlist(first_genre)))
-
-edx <- edx %>% mutate(daypart = as.factor(ifelse(hour >= 05 & hour <= 11, "Morning",
-                                                  ifelse(hour > 11 & hour <= 16, "Afternoon",
-                                                         ifelse(hour > 16 & hour <= 19, "Evening", "Night")))))
-
-edx <- edx %>% group_by(movieId) %>% mutate(avg_rating = as.integer(sum(rating) / n())) %>% ungroup()
 
 summary(edx)
 

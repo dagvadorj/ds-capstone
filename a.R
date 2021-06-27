@@ -80,3 +80,4 @@ mean(glm_y_hat_5 == test$y)
 qda_fit <- train %>% train(y ~ duration, data = ., method = "qda")
 qda_y_hat <- predict(qda_fit, test)
 mean(qda_y_hat == test$y)
+

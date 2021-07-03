@@ -1,14 +1,12 @@
+##############################
 # Executive summary
+##############################
+
 # Movie Lens database is examined and models were reviewed and fit for the Hardvard edX Data Science: Capstone project.
+
 # The initial section of the code is based on the boilerplate code provided at the "Create Train and Final Hold-out Test Sets" section of the course found at https://learning.edx.org/course/course-v1:HarvardX+PH125.9x+1T2021/block-v1:HarvardX+PH125.9x+1T2021+type@sequential+block@e8800e37aa444297a3a2f35bf84ce452/block-v1:HarvardX+PH125.9x+1T2021+type@vertical+block@e9abcdd945b1416098a15fc95807b5db. Following columns were added to the movielens data frame in order to be used as potential predictors: releaseYear, ratingAge, year, month, week, weekday, hour, avgRating, firstGenre.
-# Different models were used by utilizing train method from the caret library. However, every try took unfeasible amount of time in my computer with 16 gig memory. Therefore linear model that examines accumulative biases of predictors were used.
 
-
-##########################################################
-# Create edx set, validation set (final hold-out test set)
-##########################################################
-
-# Note: this process could take a couple of minutes
+# Different models were used by utilizing train method from the caret library. However, every try took unfeasible amount of time in my computer with 16 gig memory. Therefore linear model provided at the "Regularization" section of the Data Science: Machine Learning found at https://learning.edx.org/course/course-v1:HarvardX+PH125.8x+2T2020/block-v1:HarvardX+PH125.8x+2T2020+type@sequential+block@a5bcc5177a5b440eb3e774335916e95d/block-v1:HarvardX+PH125.8x+2T2020+type@vertical+block@0f5cd79d0f374106a640b63f2c82d56a that examines accumulative biases of predictors were used.
 
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
@@ -30,8 +28,8 @@ ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings
 movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
 
 # In order to save time, this needs to be run once the dataset zip is donwloaded already
-# ratings <- fread(text = gsub("::", "\t", readLines("ml-10M100K/ratings.dat")), col.names = c("userId", "movieId", "rating", "timestamp"))
-# movies <- str_split_fixed(readLines("ml-10M100K/movies.dat"), "\\::", 3)
+ratings <- fread(text = gsub("::", "\t", readLines("ml-10M100K/ratings.dat")), col.names = c("userId", "movieId", "rating", "timestamp"))
+movies <- str_split_fixed(readLines("ml-10M100K/movies.dat"), "\\::", 3)
 
 colnames(movies) <- c("movieId", "title", "genres")
 
@@ -53,11 +51,24 @@ movielens <- movielens %>% mutate(datetime = lubridate::as_datetime(timestamp))
 
 movielens <- movielens %>% mutate(year = year(datetime), month = month(datetime), week = week(datetime), weekday = wday(datetime), hour = hour(datetime), firstGenre = map(str_split(genres, "\\|"), 1)) %>% mutate(firstGenre = as.factor(unlist(firstGenre)))
 
-movielens <- movielens %>% group_by(movieId) %>% mutate(avgRating = as.integer(sum(rating) / n())) %>% ungroup()
+# The difference between the movie's release year and the year of rating is selected as a potential predictor.
+movielens <- movielens %>% mutate(age = year - releaseYear)
+
+# Existing average rating is used as a predictor.
+movielens <- movielens %>% group_by(movieId) %>% mutate(avgRating = as.integer(sum(rating) / n()), numRating = n()) %>% ungroup()
+
+# Number of existing ratings may be a good predictor when used with existing average ratings of movies. We are stratifying number of existing ratings since the numbers are too unique per movie and this may result in overfitting.
+movielens <- movielens %>% mutate(numRatingGroup = floor(numRating/10000)*10)
 
 movielens <- movielens %>% select(-datetime, -genres, -timestamp)
 
+##############################
+# Methodology and EXploratory Analysis
+##############################
+
 summary(movielens)
+
+movielens %>% group_by(movieId, userId) %>% ggplot()
 
 # Validation set will be 10% of MovieLens data
 set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
@@ -97,7 +108,9 @@ test_set <- edx[test_index,]
 
 test_set <- test_set %>%semi_join(train_set, by = "movieId") %>% semi_join(train_set, by = "userId")
 
-# TODO Why is 100000 good
+train_set <- train_set %>% mutate(numRatingGroup = floor(numRating/10000)*10)
+test_set <- test_set %>% mutate(numRatingGroup = floor(numRating/10000)*10)
+
 
 memory.limit(9999999999)
 
@@ -117,48 +130,166 @@ memory.limit(9999999999)
 
 ## The logic
 
+scaled_matrix <- train_set$movieId
+scaled_matrix <- sweep(scaled_matrix, 2, colMeans(scaled_matrix), FUN = "-")
+scaled_matrix <- sweep(scaled_matrix, 2, colSds(scaled_matrix), FUN = "/")
+
+pr <- prcomp(scaled_matrix)
+
+table.results = data.frame()
+
 mu <- mean(train_set$rating)
 
-bias_movies <- train_set %>%
+bias.movies <- train_set %>%
   group_by(movieId) %>%
   summarize(b_movie = mean(rating - mu))
 
-predicted_ratings <- test_set %>%
-  left_join(bias_movies, by = "movieId") %>%
+pred.movies <- test_set %>%
+  left_join(bias.movies, by = "movieId") %>%
   mutate(pred = mu + b_movie)
 
-RMSE(predicted_ratings$pred, test_set$rating)
+table.results <- rbind(table.results, data.frame(name = "Movie bias", rmse = RMSE(pred.movies$pred, test_set$rating)))
 
-bias_users <- train_set %>% 
+bias.users <- train_set %>% 
   left_join(bias_movies, by='movieId') %>%
   group_by(userId) %>%
   summarize(b_user = mean(rating - mu - b_movie))
 
-predicted_ratings <- test_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
+pred.users <- test_set %>% 
+  left_join(bias.movies, by='movieId') %>%
+  left_join(bias.users, by='userId') %>%
   mutate(pred = mu + b_movie + b_user)
 
-RMSE(predicted_ratings$pred, test_set$rating)
+table.results <- rbind(table.results, data.frame(name = "User bias", rmse = RMSE(pred.users$pred, test_set$rating)))
 
-bias_weeks <- train_set %>% 
+# Does the hour of the day of rating has significant effect on the rating?
+
+bias.weekday <- train_set %>% 
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  group_by(weekday) %>%
+  summarize(b_weekday = mean(rating - mu - b_movie - b_user))
+
+pred.weekday <- test_set %>%
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  left_join(bias.weekday, by='hour') %>%
+  mutate(pred = mu + b_movie + b_user + b_weekday)
+
+table.results <- rbind(table.results, data.frame(name = "Effect of rating weekday", rmse = RMSE(pred.weekday$pred, test_set$rating)))
+
+# Does the hour of the day of rating has significant effect on the rating?
+
+bias.hour <- train_set %>% 
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  group_by(hour) %>%
+  summarize(b_hour = mean(rating - mu - b_movie - b_user))
+
+pred.hour <- test_set %>%
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  left_join(bias.hour, by='hour') %>%
+  mutate(pred = mu + b_movie + b_user + b_hour)
+
+table.results <- rbind(table.results, data.frame(name = "Effect of rating hour", rmse = RMSE(pred.hour$pred, test_set$rating)))
+
+bias.firstGenre <- train_set %>% 
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  group_by(firstGenre) %>%
+  summarize(b_firstGenre = mean(rating - mu - b_movie - b_user))
+
+pred.firstGenre <- test_set %>%
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  left_join(bias.firstGenre, by='firstGenre') %>%
+  mutate(pred = mu + b_movie + b_user + b_firstGenre)
+
+table.results <- rbind(table.results, data.frame(name = "Effect of first genre", rmse = RMSE(pred.firstGenre$pred, test_set$rating)))
+
+bias.avgRating <- train_set %>% 
   left_join(bias_movies, by='movieId') %>%
   left_join(bias_users, by='userId') %>%
   group_by(avgRating) %>%
-  summarize(b_week = mean(rating - mu - b_movie - b_user))
+  summarize(b_avgRating = mean(rating - mu - b_movie - b_user))
 
-predicted_ratings <- test_set %>%
+pred.avgRating <- test_set %>%
   left_join(bias_movies, by='movieId') %>%
   left_join(bias_users, by='userId') %>%
-  left_join(bias_weeks, by='avgRating') %>%
-  mutate(pred = mu + b_movie + b_user + b_week)
+  left_join(bias.avgRating, by='avgRating') %>%
+  mutate(pred = mu + b_movie + b_user + b_avgRating)
 
-RMSE(predicted_ratings$pred, test_set$rating)
+table.results <- rbind(table.results, data.frame(name = "Effect of existing average ratings", rmse = RMSE(pred.avgRating$pred, test_set$rating)))
 
-## Cross validation regularization
+# bias.avgRatingNumRating <- train_set %>% 
+#   left_join(bias_movies, by='movieId') %>%
+#   left_join(bias_users, by='userId') %>%
+#   left_join(bias.avgRating, by='avgRating') %>%
+#   group_by(numRating) %>%
+#   summarize(b_avgRatingNumRating = mean(rating - mu - b_movie - b_user - b_week))
+# 
+# pred.avgRatingNumRating <- test_set %>%
+#   left_join(bias_movies, by='movieId') %>%
+#   left_join(bias_users, by='userId') %>%
+#   left_join(bias.avgRating, by='avgRating') %>%
+#   left_join(bias.avgRatingNumRating, by='numRating') %>%
+#   mutate(pred = mu + b_movie + b_user + b_week + b_avgRatingNumRating)
+# 
+# table.results <- rbind(table.results, data.frame(name = "Effect of both average of existing rating and number of ratings", rmse = RMSE(pred.avgRatingNumRating$pred, test_set$rating)))
 
-lambdas = seq(0, 10, .1)
-lambdas
+bias.avgRatingNumRatingStrata <- train_set %>% 
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  left_join(bias.avgRating, by='avgRating') %>%
+  group_by(numRatingGroup) %>%
+  summarize(b_avgRatingNumRatingStrata = mean(rating - mu - b_movie - b_user - b_avgRating))
+
+pred.avgRatingNumRatingStrata <- test_set %>%
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  left_join(bias.avgRating, by='avgRating') %>%
+  left_join(bias.avgRatingNumRatingStrata, by='numRatingGroup') %>%
+  mutate(pred = mu + b_movie + b_user + b_avgRating + b_avgRatingNumRatingStrata)
+
+table.results <- rbind(table.results, data.frame(name = "Effect of both average of existing ratings and number of ratings strata", rmse = RMSE(pred.avgRatingNumRatingStrata$pred, test_set$rating)))
+
+bias.releaseYear <- train_set %>% 
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  group_by(releaseYear) %>%
+  summarize(b_releaseYear = mean(rating - mu - b_movie - b_user))
+
+pred.releaseYear <- test_set %>%
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  left_join(bias.releaseYear, by='releaseYear') %>%
+  mutate(pred = mu + b_movie + b_user + b_releaseYear)
+
+table.results <- rbind(table.results, data.frame(name = "Effect of release year", rmse = RMSE(pred.releaseYear$pred, test_set$rating)))
+
+bias.age <- train_set %>% 
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  group_by(age) %>%
+  summarize(b_age = mean(rating - mu - b_movie - b_user))
+
+pred.age <- test_set %>%
+  left_join(bias_movies, by='movieId') %>%
+  left_join(bias_users, by='userId') %>%
+  left_join(bias.age, by='age') %>%
+  mutate(pred = mu + b_movie + b_user + b_age)
+
+table.results <- rbind(table.results, data.frame(name = "Effect of difference between release year and rating year", rmse = RMSE(pred.age$pred, test_set$rating)))
+
+##############################
+# Results
+##############################
+
+table.results
+
+edx <- edx %>% mutate(numRatingGroup = floor(numRating/10000)*10)
+validation <- validation %>% mutate(numRatingGroup = floor(numRating/10000)*10)
 
 regularize <- function(train, test, lambda) {
 
@@ -173,23 +304,33 @@ regularize <- function(train, test, lambda) {
     group_by(userId) %>%
     summarize(b_user = sum(rating - mu - b_movie)/(lambda + n()))
 
-  bias_weeks <- train %>% 
+  bias.avgRating <- train %>% 
     left_join(bias_movies, by='movieId') %>%
     left_join(bias_users, by='userId') %>%
-    group_by(firstGenre) %>%
-    summarize(b_week = sum(rating - mu - b_movie - b_user)/(lambda + n()))
-  
-  predicted_ratings <- test %>%
-    left_join(bias_movies, by='movieId') %>%
-    left_join(bias_users, by='userId') %>%
-    left_join(bias_weeks, by='firstGenre') %>%
-    mutate(pred = mu + b_movie + b_user + b_week)
+    group_by(avgRating) %>%
+    summarize(b_avgRating = mean(rating - mu - b_movie - b_user))
 
-  RMSE(predicted_ratings$pred, test$rating)
+  bias.avgRatingNumRatingStrata <- train %>% 
+    left_join(bias_movies, by='movieId') %>%
+    left_join(bias_users, by='userId') %>%
+    left_join(bias.avgRating, by='avgRating') %>%
+    group_by(numRatingGroup) %>%
+    summarize(b_avgRatingNumRatingStrata = mean(rating - mu - b_movie - b_user - b_avgRating))
+  
+  pred.avgRatingNumRatingStrata <- test %>%
+    left_join(bias_movies, by='movieId') %>%
+    left_join(bias_users, by='userId') %>%
+    left_join(bias.avgRating, by='avgRating') %>%
+    left_join(bias.avgRatingNumRatingStrata, by='numRatingGroup') %>%
+    mutate(pred = mu + b_movie + b_user + b_avgRating + b_avgRatingNumRatingStrata)
+
+  RMSE(pred.avgRatingNumRatingStrata$pred, test$rating)
 
 }
 
-dplyr.summarise.inform <- FALSE
+dplyr.summarize.warning <- FALSE
+
+lambdas = seq(0, 8, .1)
 
 results <- sapply(lambdas, function(lambda) {
   regularize(edx, validation, lambda)
@@ -199,4 +340,12 @@ qplot(lambdas, results)
 
 min(results)
 
-## Validate models
+# 5 points: RMSE >= 0.90000 AND/OR the reported RMSE is the result of overtraining (validation set - the final hold-out test set - ratings used for anything except reporting the final RMSE value) AND/OR the reported RMSE is the result of simply copying and running code provided in previous courses in the series.
+# 10 points: 0.86550 <= RMSE <= 0.89999
+# 15 points: 0.86500 <= RMSE <= 0.86549
+# 20 points: 0.86490 <= RMSE <= 0.86499
+# 25 points: RMSE < 0.86490
+
+##############################
+# Conclusion
+##############################

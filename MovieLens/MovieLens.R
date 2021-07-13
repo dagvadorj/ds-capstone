@@ -15,11 +15,15 @@
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(GGally)) install.packages("GGally", repos = "http://cran.us.r-project.org")
+install.packages(c("ggridges"))
 
 library(tidyverse)
 library(caret)
 library(data.table)
 library(lubridate)
+library(GGally)
+library(ggridges)
 
 # MovieLens 10M dataset:
 # https://grouplens.org/datasets/movielens/10m/
@@ -44,7 +48,7 @@ colnames(movies) <- c("movieId", "title", "genres")
 # if using R 4.0 or later:
 movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
                                            title = as.character(title),
-                                           genres = as.character(genres2))
+                                           genres = as.character(genres))
 
 
 movielens <- left_join(ratings, movies, by = "movieId")
@@ -52,21 +56,22 @@ movielens <- left_join(ratings, movies, by = "movieId")
 # Extracting release date from titles
 movielens <- movielens %>% mutate(releaseYear = str_extract(movielens$title, "\\((\\d{4})\\)$")) %>% mutate(releaseYear = as.integer(substring(releaseYear, 2, nchar(releaseYear)-1)))
 
-# The difference between the movie's release year and the year of rating is selected as a potential predictor.
-movielens <- movielens %>% mutate(age = year - releaseYear)
-
 # Extracting components of the date of rating
 movielens <- movielens %>% mutate(datetime = lubridate::as_datetime(timestamp))
 movielens <- movielens %>% mutate(year = year(datetime), month = month(datetime), week = week(datetime), weekday = wday(datetime), hour = hour(datetime))
 
-movielens <- movielens %>% mutate(firstGenre = map(str_split(genres, "\\|"), 1)) %>% mutate(firstGenre = as.factor(unlist(firstGenre)))
+# The difference between the movie's release year and the year of rating is selected as a potential predictor.
+movielens <- movielens %>% mutate(age = year - releaseYear)
 
 # Existing average rating is used as a predictor
 movielens <- movielens %>% group_by(movieId) %>% mutate(avgRating = as.integer(sum(rating) / n()), numRating = n()) %>% ungroup()
 
 # Number of existing ratings may be a good predictor when used with existing average ratings of movies. We are stratifying number of existing ratings since the numbers are too unique per movie and this may result in overfitting.
-movielens <- movielens %>% mutate(numRatingGroup = floor(numRating/10000)*10)
+movielens <- movielens %>% mutate(numRatingStrata = floor(numRating/10000)*10)
 
+movielens$numRatingStrata
+
+# We will not be using datetime, genres, and timestamp as predictors
 movielens <- movielens %>% select(-datetime, -genres, -timestamp)
 
 ##############################
@@ -90,6 +95,7 @@ validation <- temp %>%
 removed <- anti_join(temp, validation)
 edx <- rbind(edx, removed)
 
+# Freeing up memory and workspace
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
 # We will use RMSE function to examine the accuracy of our models since we are dealing with continuous outcomes.
@@ -108,9 +114,6 @@ test_set <- edx[test_index,]
 
 test_set <- test_set %>%semi_join(train_set, by = "movieId") %>% semi_join(train_set, by = "userId")
 
-train_set <- train_set %>% mutate(numRatingGroup = floor(numRating/10000)*10)
-test_set <- test_set %>% mutate(numRatingGroup = floor(numRating/10000)*10)
-
 ##############################
 # Selection of methodology
 ##############################
@@ -127,161 +130,166 @@ test_set <- test_set %>% mutate(numRatingGroup = floor(numRating/10000)*10)
 # test_set_1 <- test_set_1 %>%semi_join(train_set_1, by = "movieId") %>% semi_join(train_set_1, by = "userId")
 # model.lm <- train_set_1 %>% train(rating ~ movieId + userId, data = ., method = "glm")
 
-scaled_matrix <- train_set %>% select(movieId, userId)
-scaled_matrix <- sweep(scaled_matrix, 2, colMeans(scaled_matrix), FUN = "-")
-scaled_matrix <- sweep(scaled_matrix, 2, colSds(scaled_matrix), FUN = "/")
-
-pr <- prcomp(scaled_matrix)
-
 ##############################
 # Exploratory analysis
 ##############################
 
-# Summary of our dataset:
+# Summary of our dataset using the "summary" method will give us idea about statistical information about each predictor.
 summary(edx)
 
 # Movielens is a well studied data set. In this section, we will examine the predictors and how they may correlate with the outcome.
+
+ggcorr(edx, label = TRUE, label_alpha = TRUE)
+
+# As edx is a relatively large dataset, it will consume a lot of time doing exploratory analysis. As such we will be performing the analysis and the model fitting based on train_set.
+
+ggcorr(train_set, label = TRUE, label_alpha = TRUE)
+
+# Indeed the correlation analysis on train_set indicates that
+
+# Of course there are significant correlations between the number of ratings and number of ratings strata, age and release year, month and week, movie and year, since these data are based on one another. Correlations that needs to be noted are average rating and rating, age and rating, number of ratings strata and rating.
+
+# What is the most voted month?
+
+train_set %>% ggplot(aes(week)) + geom_histogram(color = "black") + facet_grid(~rating)
+
+# This analysis indicates that people tend to rate movies more with full rates rather than half rates as well as that people rated more during the holiday season.
+
+train_set %>% ggplot(aes(x = rating, y = as.factor(weekday), color = weekday)) + geom_density_ridges()
 
 ##############################
 # Models
 ##############################
 
-table.results = data.frame()
+# Course benchmark data consists of 5 digits after period. So it will make more sense to output our data this way.
+options(digits = 5)
 
-mu <- mean(train_set$rating)
+fit.models <- function(train, test) {
 
-bias.movies <- train_set %>%
-  group_by(movieId) %>%
-  summarize(b_movie = mean(rating - mu))
+  table.results = data.frame()
+  
+  mu <- mean(train$rating)
+  
+  bias.movies <- train %>%
+    group_by(movieId) %>%
+    summarize(b_movie = mean(rating - mu))
+  
+  pred.movies <- test %>%
+    left_join(bias.movies, by = "movieId") %>%
+    mutate(pred = mu + b_movie)
+  
+  table.results <- rbind(table.results, data.frame(name = "Movie bias", rmse = RMSE(pred.movies$pred, test$rating)))
+  
+  bias.users <- train %>% 
+    left_join(bias.movies, by='movieId') %>%
+    group_by(userId) %>%
+    summarize(b_user = mean(rating - mu - b_movie))
+  
+  pred.users <- test %>% 
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    mutate(pred = mu + b_movie + b_user)
+  
+  table.results <- rbind(table.results, data.frame(name = "User bias", rmse = RMSE(pred.users$pred, test$rating)))
+  
+  bias.week <- train %>% 
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    group_by(week) %>%
+    summarize(b_week = mean(rating - mu - b_movie - b_user))
+  
+  pred.week <- test %>%
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    left_join(bias.week, by='week') %>%
+    mutate(pred = mu + b_movie + b_user + b_week)
+  
+  table.results <- rbind(table.results, data.frame(name = "Movie and user biases + effect of week of the rating", rmse = RMSE(pred.week$pred, test$rating)))
+  
+  bias.hour <- train %>% 
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    group_by(hour) %>%
+    summarize(b_hour = mean(rating - mu - b_movie - b_user))
+  
+  pred.hour <- test %>%
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    left_join(bias.hour, by='hour') %>%
+    mutate(pred = mu + b_movie + b_user + b_hour)
+  
+  table.results <- rbind(table.results, data.frame(name = "Movie and user biases + effect of hour of the rating", rmse = RMSE(pred.hour$pred, test$rating)))
+  
+  bias.avgRating <- train %>% 
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    group_by(avgRating) %>%
+    summarize(b_avgRating = mean(rating - mu - b_movie - b_user))
+  
+  pred.avgRating <- test %>%
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    left_join(bias.avgRating, by='avgRating') %>%
+    mutate(pred = mu + b_movie + b_user + b_avgRating)
+  
+  table.results <- rbind(table.results, data.frame(name = "Movie and user biases + effect of existing average ratings", rmse = RMSE(pred.avgRating$pred, test$rating)))
+  
+  bias.avgRatingNumRatingStrata <- train %>% 
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    left_join(bias.avgRating, by='avgRating') %>%
+    group_by(numRatingStrata) %>%
+    summarize(b_avgRatingNumRatingStrata = mean(rating - mu - b_movie - b_user - b_avgRating))
+  
+  pred.avgRatingNumRatingStrata <- test %>%
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    left_join(bias.avgRating, by='avgRating') %>%
+    left_join(bias.avgRatingNumRatingStrata, by='numRatingStrata') %>%
+    mutate(pred = mu + b_movie + b_user + b_avgRating + b_avgRatingNumRatingStrata)
+  
+  table.results <- rbind(table.results, data.frame(name = "Movie and user biases + effect of both existing average ratings and the strata of number of ratings", rmse = RMSE(pred.avgRatingNumRatingStrata$pred, test$rating)))
+  
+  bias.releaseYear <- train %>%
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    group_by(releaseYear) %>%
+    summarize(b_releaseYear = mean(rating - mu - b_movie - b_user))
+  
+  pred.releaseYear <- test %>%
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    left_join(bias.releaseYear, by='releaseYear') %>%
+    mutate(pred = mu + b_movie + b_user + b_releaseYear)
+  
+  table.results <- rbind(table.results, data.frame(name = "Movie and user biases + effect of release year", rmse = RMSE(pred.releaseYear$pred, test$rating)))
+  
+  bias.age <- train %>% 
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    group_by(age) %>%
+    summarize(b_age = mean(rating - mu - b_movie - b_user))
+  
+  pred.age <- test %>%
+    left_join(bias.movies, by='movieId') %>%
+    left_join(bias.users, by='userId') %>%
+    left_join(bias.age, by='age') %>%
+    mutate(pred = mu + b_movie + b_user + b_age)
+  
+  table.results <- rbind(table.results, data.frame(name = "Movie and user biases + effect of difference between release year and rating year", rmse = RMSE(pred.age$pred, test$rating)))
 
-pred.movies <- test_set %>%
-  left_join(bias.movies, by = "movieId") %>%
-  mutate(pred = mu + b_movie)
+  table.results
+}
 
-table.results <- rbind(table.results, data.frame(name = "Movie bias", rmse = RMSE(pred.movies$pred, test_set$rating)))
-
-bias.users <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  group_by(userId) %>%
-  summarize(b_user = mean(rating - mu - b_movie))
-
-pred.users <- test_set %>% 
-  left_join(bias.movies, by='movieId') %>%
-  left_join(bias.users, by='userId') %>%
-  mutate(pred = mu + b_movie + b_user)
-
-table.results <- rbind(table.results, data.frame(name = "User bias", rmse = RMSE(pred.users$pred, test_set$rating)))
-
-bias.weekday <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  group_by(weekday) %>%
-  summarize(b_weekday = mean(rating - mu - b_movie - b_user))
-
-pred.weekday <- test_set %>%
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.weekday, by='hour') %>%
-  mutate(pred = mu + b_movie + b_user + b_weekday)
-
-table.results <- rbind(table.results, data.frame(name = "Effect of rating weekday", rmse = RMSE(pred.weekday$pred, test_set$rating)))
-
-bias.hour <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  group_by(hour) %>%
-  summarize(b_hour = mean(rating - mu - b_movie - b_user))
-
-pred.hour <- test_set %>%
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.hour, by='hour') %>%
-  mutate(pred = mu + b_movie + b_user + b_hour)
-
-table.results <- rbind(table.results, data.frame(name = "Effect of rating hour", rmse = RMSE(pred.hour$pred, test_set$rating)))
-
-bias.firstGenre <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  group_by(firstGenre) %>%
-  summarize(b_firstGenre = mean(rating - mu - b_movie - b_user))
-
-pred.firstGenre <- test_set %>%
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.firstGenre, by='firstGenre') %>%
-  mutate(pred = mu + b_movie + b_user + b_firstGenre)
-
-table.results <- rbind(table.results, data.frame(name = "Effect of first genre", rmse = RMSE(pred.firstGenre$pred, test_set$rating)))
-
-bias.avgRating <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  group_by(avgRating) %>%
-  summarize(b_avgRating = mean(rating - mu - b_movie - b_user))
-
-pred.avgRating <- test_set %>%
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.avgRating, by='avgRating') %>%
-  mutate(pred = mu + b_movie + b_user + b_avgRating)
-
-table.results <- rbind(table.results, data.frame(name = "Effect of existing average ratings", rmse = RMSE(pred.avgRating$pred, test_set$rating)))
-
-bias.avgRatingNumRatingStrata <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.avgRating, by='avgRating') %>%
-  group_by(numRatingGroup) %>%
-  summarize(b_avgRatingNumRatingStrata = mean(rating - mu - b_movie - b_user - b_avgRating))
-
-pred.avgRatingNumRatingStrata <- test_set %>%
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.avgRating, by='avgRating') %>%
-  left_join(bias.avgRatingNumRatingStrata, by='numRatingGroup') %>%
-  mutate(pred = mu + b_movie + b_user + b_avgRating + b_avgRatingNumRatingStrata)
-
-table.results <- rbind(table.results, data.frame(name = "Effect of both average of existing ratings and number of ratings strata", rmse = RMSE(pred.avgRatingNumRatingStrata$pred, test_set$rating)))
-
-bias.releaseYear <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  group_by(releaseYear) %>%
-  summarize(b_releaseYear = mean(rating - mu - b_movie - b_user))
-
-pred.releaseYear <- test_set %>%
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.releaseYear, by='releaseYear') %>%
-  mutate(pred = mu + b_movie + b_user + b_releaseYear)
-
-table.results <- rbind(table.results, data.frame(name = "Effect of release year", rmse = RMSE(pred.releaseYear$pred, test_set$rating)))
-
-bias.age <- train_set %>% 
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  group_by(age) %>%
-  summarize(b_age = mean(rating - mu - b_movie - b_user))
-
-pred.age <- test_set %>%
-  left_join(bias_movies, by='movieId') %>%
-  left_join(bias_users, by='userId') %>%
-  left_join(bias.age, by='age') %>%
-  mutate(pred = mu + b_movie + b_user + b_age)
-
-table.results <- rbind(table.results, data.frame(name = "Effect of difference between release year and rating year", rmse = RMSE(pred.age$pred, test_set$rating)))
+fit.models(train_set, test_set)
 
 # We will select rating age based and average rating plus number of rating strata based models because they are the best performers and use regularization in order to improve against overfitting.
+
+table.results = fit.models(edx, validation)
 
 ##############################
 # Results
 ##############################
-
-table.results
-
-edx <- edx %>% mutate(numRatingGroup = floor(numRating/10000)*10)
-validation <- validation %>% mutate(numRatingGroup = floor(numRating/10000)*10)
 
 regularize.avgRating <- function(train, test, lambda) {
 
@@ -306,14 +314,14 @@ regularize.avgRating <- function(train, test, lambda) {
     left_join(bias_movies, by='movieId') %>%
     left_join(bias_users, by='userId') %>%
     left_join(bias.avgRating, by='avgRating') %>%
-    group_by(numRatingGroup) %>%
+    group_by(numRatingStrata) %>%
     summarize(b_avgRatingNumRatingStrata = mean(rating - mu - b_movie - b_user - b_avgRating))
   
   pred.avgRatingNumRatingStrata <- test %>%
     left_join(bias_movies, by='movieId') %>%
     left_join(bias_users, by='userId') %>%
     left_join(bias.avgRating, by='avgRating') %>%
-    left_join(bias.avgRatingNumRatingStrata, by='numRatingGroup') %>%
+    left_join(bias.avgRatingNumRatingStrata, by='numRatingStrata') %>%
     mutate(pred = mu + b_movie + b_user + b_avgRating + b_avgRatingNumRatingStrata)
 
   RMSE(pred.avgRatingNumRatingStrata$pred, test$rating)
@@ -349,6 +357,8 @@ regularize.age <- function(train, test, lambda) {
   
 }
 
+# Cross-validating lambdas for the selected models
+# TODO Why these alphas
 lambdas = seq(0, 8, .25)
 
 results.avgRating <- sapply(lambdas, function(lambda) {
@@ -362,15 +372,19 @@ results.age <- sapply(lambdas, function(lambda) {
 qplot(lambdas, results.avgRating)
 qplot(lambdas, results.age)
 
-min(results.avgRating)
-min(results.age)
+# The best performing regularized model yields RMSE of 0.8646
 
-# 5 points: RMSE >= 0.90000 AND/OR the reported RMSE is the result of overtraining (validation set - the final hold-out test set - ratings used for anything except reporting the final RMSE value) AND/OR the reported RMSE is the result of simply copying and running code provided in previous courses in the series.
-# 10 points: 0.86550 <= RMSE <= 0.89999
-# 15 points: 0.86500 <= RMSE <= 0.86549
-# 20 points: 0.86490 <= RMSE <= 0.86499
-# 25 points: RMSE < 0.86490
+min(results.avgRating)
+table.results <- rbind(table.results, data.frame(name = "Effect of existing average ratings + Regularization", rmse = min(results.avgRating)))
+
+# The best performing regularized model yields RMSE of 0.86434
+
+min(results.age)
+table.results <- rbind(table.results, data.frame(name = "Effect of difference between release year and rating year + Regularization", rmse = min(results.age)))
 
 ##############################
 # Conclusion
 ##############################
+
+table.results
+

@@ -1,0 +1,11 @@
+---
+title: "MovieLens"
+author: "Dagvadorj Galbadrakh"
+date: "7/13/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+

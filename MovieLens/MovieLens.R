@@ -1,22 +1,32 @@
 ##############################
-# Executive summary
+# 1. Executive summary
 ##############################
 
-# Movie Lens database is examined and models were reviewed and fit for the Hardvard edX Data Science: Capstone project.
+# MovieLens database is examined and models were reviewed and fit for the Hardvard edX Data Science: Capstone project.
 
-# The initial section of the code is based on the boilerplate code provided at the "Create Train and Final Hold-out Test Sets" section of the course found at https://learning.edx.org/course/course-v1:HarvardX+PH125.9x+1T2021/block-v1:HarvardX+PH125.9x+1T2021+type@sequential+block@e8800e37aa444297a3a2f35bf84ce452/block-v1:HarvardX+PH125.9x+1T2021+type@vertical+block@e9abcdd945b1416098a15fc95807b5db. Following columns were added to the movielens data frame in order to be used as potential predictors: releaseYear, ratingAge, year, month, week, weekday, hour, avgRating, firstGenre.
+# The initial section of the code is based on the boilerplate code provided at the "Create Train and Final Hold-out Test Sets" section of the course [1]. Following columns were added to the movielens dataframe in order to be used as potential predictors: releaseYear, age, year, month, week, weekday, hour, avgRating, numRating, and numRatingStrata. releaseYear was extracted from the movie title; age was calculated by subtracting the rating date from the release year; year, month, week, weekday, and hour are extracted from the date of rating using the lubridate package. Average rating and the number of ratings were calculated based on overall ratings of movies. Furthermore, the number of ratings were stratified by thousands factor of the number of ratings and stored in numRatingStrata since the actual number will be too specific to be used as a predictor.
 
-# Different models were used by utilizing train method from the caret library. However, every try took unfeasible amount of time in my computer with 16 gig memory. Therefore linear model provided at the "Regularization" section of the Data Science: Machine Learning found at https://learning.edx.org/course/course-v1:HarvardX+PH125.8x+2T2020/block-v1:HarvardX+PH125.8x+2T2020+type@sequential+block@a5bcc5177a5b440eb3e774335916e95d/block-v1:HarvardX+PH125.8x+2T2020+type@vertical+block@0f5cd79d0f374106a640b63f2c82d56a that examines accumulative biases of predictors were used.
+# Different models were used by utilizing train method from the caret library. However, every try took unfeasible amount of time in my computer with 16 gig memory. Therefore linear model provided at the "Regularization" section of the Data Science: Machine Learning course [2] that examines accumulative biases of predictors were used.
+
+# Exploratory data analyses were performed in order to understand how the predictors correlate with the ratings.
+
+# Upon fitting models and assessing the RMSEs of the predicted values on a subset of the edx dataset, it was understood that the age of the ratings and the existing average rating of the movie weighted by the number of rating stratifications are relatively well performing as predictors.
+
+# Regularization method of assigning a tuning parameter as in [2] yielded 0.86460 and 0.86434 RMSEs for the models accounting biases of movies and users plus the age of rating and the number of rating weighted average rating respectively.
 
 ##############################
-# Data preparation
+# 2. Methods
+##############################
+
+##############################
+# 2.1 Data preparation
 ##############################
 
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(GGally)) install.packages("GGally", repos = "http://cran.us.r-project.org")
-install.packages(c("ggridges"))
+install.packages(c("ggridges", "ggthemes"))
 
 library(tidyverse)
 library(caret)
@@ -24,6 +34,7 @@ library(data.table)
 library(lubridate)
 library(GGally)
 library(ggridges)
+library(ggthemes)
 
 # MovieLens 10M dataset:
 # https://grouplens.org/datasets/movielens/10m/
@@ -35,7 +46,7 @@ download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
 ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))), col.names = c("userId", "movieId", "rating", "timestamp"))
 movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
 
-# In order to save time, this needs to be run once the dataset zip is donwloaded already
+# In order to save time, this needs to be run once the dataset zip is downloaded already.
 ratings <- fread(text = gsub("::", "\t", readLines("ml-10M100K/ratings.dat")), col.names = c("userId", "movieId", "rating", "timestamp"))
 movies <- str_split_fixed(readLines("ml-10M100K/movies.dat"), "\\::", 3)
 
@@ -50,32 +61,31 @@ movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
                                            title = as.character(title),
                                            genres = as.character(genres))
 
-
 movielens <- left_join(ratings, movies, by = "movieId")
 
 # Extracting release date from titles
 movielens <- movielens %>% mutate(releaseYear = str_extract(movielens$title, "\\((\\d{4})\\)$")) %>% mutate(releaseYear = as.integer(substring(releaseYear, 2, nchar(releaseYear)-1)))
 
-# Extracting components of the date of rating
+# Extracting components of the date of the ratings
 movielens <- movielens %>% mutate(datetime = lubridate::as_datetime(timestamp))
 movielens <- movielens %>% mutate(year = year(datetime), month = month(datetime), week = week(datetime), weekday = wday(datetime), hour = hour(datetime))
 
-# The difference between the movie's release year and the year of rating is selected as a potential predictor.
+# The difference between the movie's release year and the year of rating is selected as a potential predictor
 movielens <- movielens %>% mutate(age = year - releaseYear)
 
-# Existing average rating is used as a predictor
+# Existing average rating will be used as a predictor
 movielens <- movielens %>% group_by(movieId) %>% mutate(avgRating = as.integer(sum(rating) / n()), numRating = n()) %>% ungroup()
 
-# Number of existing ratings may be a good predictor when used with existing average ratings of movies. We are stratifying number of existing ratings since the numbers are too unique per movie and this may result in overfitting.
+# Number of existing ratings may be a good predictor when used with existing average ratings of movies. I am stratifying the number of existing ratings since the numbers are too unique per movie and this may result in overfitting.
 movielens <- movielens %>% mutate(numRatingStrata = floor(numRating/10000)*10)
 
-movielens$numRatingStrata
+hist(movielens$numRatingStrata)
 
 # We will not be using datetime, genres, and timestamp as predictors
 movielens <- movielens %>% select(-datetime, -genres, -timestamp)
 
 ##############################
-# Training and testing data set preparation
+# 2.2 Training and testing data set preparation
 ##############################
 
 summary(movielens)
@@ -98,7 +108,7 @@ edx <- rbind(edx, removed)
 # Freeing up memory and workspace
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
-# We will use RMSE function to examine the accuracy of our models since we are dealing with continuous outcomes.
+# I will use RMSE function to examine the accuracy of our models since we are dealing with continuous outcomes.
 RMSE <- function(predicted, actual) {
   sqrt(mean((predicted - actual)^2, na.rm = TRUE))
 }
@@ -115,7 +125,7 @@ test_set <- edx[test_index,]
 test_set <- test_set %>%semi_join(train_set, by = "movieId") %>% semi_join(train_set, by = "userId")
 
 ##############################
-# Selection of methodology
+# 2.3 Selection of methodology
 ##############################
 
 # Using caret training models are not feasible for this exercise as simple linear regression model for two predictors in train_set data set are taking approximately 19 minutes. Using other models like recursive partitioning and random forest models give insufficient memory errors or run hours when memory usage limit is increased by memory.limit(9999999999).
@@ -131,17 +141,21 @@ test_set <- test_set %>%semi_join(train_set, by = "movieId") %>% semi_join(train
 # model.lm <- train_set_1 %>% train(rating ~ movieId + userId, data = ., method = "glm")
 
 ##############################
-# Exploratory analysis
+# 2.4 Exploratory analysis
 ##############################
+
+# I liked reading Economist or Wall Street Journal on airplanes just to feel fancy.
+
+theme_set(theme_economist())
 
 # Summary of our dataset using the "summary" method will give us idea about statistical information about each predictor.
 summary(edx)
 
-# Movielens is a well studied data set. In this section, we will examine the predictors and how they may correlate with the outcome.
+# MovieLens is a well studied data set. In this section, here I will examine the predictors and how they may correlate with the outcome rather than performing comprehensive and overwhelming exploratory data analysis.
 
 ggcorr(edx, label = TRUE, label_alpha = TRUE)
 
-# As edx is a relatively large dataset, it will consume a lot of time doing exploratory analysis. As such we will be performing the analysis and the model fitting based on train_set.
+# As edx is a relatively large dataset, it will consume a lot of time doing exploratory analysis. As such, I will be performing the analysis and the model fitting based on train_set.
 
 ggcorr(train_set, label = TRUE, label_alpha = TRUE)
 
@@ -149,25 +163,34 @@ ggcorr(train_set, label = TRUE, label_alpha = TRUE)
 
 # Of course there are significant correlations between the number of ratings and number of ratings strata, age and release year, month and week, movie and year, since these data are based on one another. Correlations that needs to be noted are average rating and rating, age and rating, number of ratings strata and rating.
 
-# What is the most voted month?
-
 train_set %>% ggplot(aes(week)) + geom_histogram(color = "black") + facet_grid(~rating)
 
 # This analysis indicates that people tend to rate movies more with full rates rather than half rates as well as that people rated more during the holiday season.
 
-train_set %>% ggplot(aes(x = rating, y = as.factor(weekday), color = weekday)) + geom_density_ridges()
+train_set %>% ggplot(aes(hour)) + geom_histogram(color = "black") + facet_grid(~rating)
+
+# This analysis indicates that people tend to start rating movies more afternoon peaking during the primetime and gradually decreasing towards morning. However, the pattern is same for all ratings and does not effect on the specific rating they choose.
+
+train_set %>% ggplot(aes(x = age, y = as.factor(rating))) + geom_density_ridges()
+
+# This analysis indicates that regardless of the rating, fewer people rated older movies. People tend to rate half points to older movies.
+
+train_set %>% ggplot(aes(avgRating, numRatingStrata, size = numRating)) + geom_point() + geom_text(aes(label = numRating))
+
+# There are more ratings with higher ratings.
 
 ##############################
-# Models
+# 2.5 Models
 ##############################
 
 # Course benchmark data consists of 5 digits after period. So it will make more sense to output our data this way.
 options(digits = 5)
 
+# I will define a function which I will use first use to examine train_set and test_set and later edx and validation
 fit.models <- function(train, test) {
 
   table.results = data.frame()
-  
+
   mu <- mean(train$rating)
   
   bias.movies <- train %>%
@@ -283,13 +306,15 @@ fit.models <- function(train, test) {
 
 fit.models(train_set, test_set)
 
-# We will select rating age based and average rating plus number of rating strata based models because they are the best performers and use regularization in order to improve against overfitting.
+# I will select rating age based and average rating as well as the number of rating stratification based models because they are the best performers and I will also use regularization in order to improve against overfitting.
 
 table.results = fit.models(edx, validation)
 
 ##############################
-# Results
+# 3 Results
 ##############################
+
+# regularize.avgRating function calculates RMSEs of a training set and a test set using different values of tuning parameters using the model that is based on the biases of movies and users as well as the existing average ratings of the movies.
 
 regularize.avgRating <- function(train, test, lambda) {
 
@@ -327,6 +352,8 @@ regularize.avgRating <- function(train, test, lambda) {
   RMSE(pred.avgRatingNumRatingStrata$pred, test$rating)
 
 }
+
+# regularize.age function calculates RMSEs of a training set and a test set using different values of tuning parameters using the model that is based on the biases of movies and users as well as the age of the rating weighted by the stratification of the number of ratings.
 
 regularize.age <- function(train, test, lambda) {
   
@@ -383,8 +410,14 @@ min(results.age)
 table.results <- rbind(table.results, data.frame(name = "Effect of difference between release year and rating year + Regularization", rmse = min(results.age)))
 
 ##############################
-# Conclusion
+# 4 Conclusion
 ##############################
 
 table.results
 
+##############################
+# References
+##############################
+
+# [1] https://learning.edx.org/course/course-v1:HarvardX+PH125.9x+1T2021/block-v1:HarvardX+PH125.9x+1T2021+type@sequential+block@e8800e37aa444297a3a2f35bf84ce452/block-v1:HarvardX+PH125.9x+1T2021+type@vertical+block@e9abcdd945b1416098a15fc95807b5db retrieved in June 2021
+# [2] Irizarry, Introduction to Data Science, found at https://leanpub.com/datasciencebook retrieved in June, 2021

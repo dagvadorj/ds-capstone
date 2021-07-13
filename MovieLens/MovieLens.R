@@ -6,7 +6,7 @@
 
 # The initial section of the code is based on the boilerplate code provided at the "Create Train and Final Hold-out Test Sets" section of the course [1]. Following columns were added to the movielens dataframe in order to be used as potential predictors: releaseYear, age, year, month, week, weekday, hour, avgRating, numRating, and numRatingStrata. releaseYear was extracted from the movie title; age was calculated by subtracting the rating date from the release year; year, month, week, weekday, and hour are extracted from the date of rating using the lubridate package. Average rating and the number of ratings were calculated based on overall ratings of movies. Furthermore, the number of ratings were stratified by thousands factor of the number of ratings and stored in numRatingStrata since the actual number will be too specific to be used as a predictor.
 
-# Different models were used by utilizing train method from the caret library. However, every try took unfeasible amount of time in my computer with 16 gig memory. Therefore linear model provided at the "Regularization" section of the Data Science: Machine Learning course [2] that examines accumulative biases of predictors were used.
+# Different models were used by utilizing train method from the caret library. However, every try took unfeasible amount of time in my computer with 16 gig memory. Therefore linear model provided at Irizarry, 2019 [2] that examines accumulative biases of predictors were used.
 
 # Exploratory data analyses were performed in order to understand how the predictors correlate with the ratings.
 
@@ -140,6 +140,8 @@ test_set <- test_set %>%semi_join(train_set, by = "movieId") %>% semi_join(train
 # test_set_1 <- test_set_1 %>%semi_join(train_set_1, by = "movieId") %>% semi_join(train_set_1, by = "userId")
 # model.lm <- train_set_1 %>% train(rating ~ movieId + userId, data = ., method = "glm")
 
+# Hence, I will be using the simpler model that accounts for the movie and user biases by grouping the data by movieId and userId and analyzes their effects on the ratings. This model is mentioned in Irizarry, 2019 [2].
+
 ##############################
 # 2.4 Exploratory analysis
 ##############################
@@ -174,10 +176,6 @@ train_set %>% ggplot(aes(hour)) + geom_histogram(color = "black") + facet_grid(~
 train_set %>% ggplot(aes(x = age, y = as.factor(rating))) + geom_density_ridges()
 
 # This analysis indicates that regardless of the rating, fewer people rated older movies. People tend to rate half points to older movies.
-
-train_set %>% ggplot(aes(avgRating, numRatingStrata, size = numRating)) + geom_point() + geom_text(aes(label = numRating))
-
-# There are more ratings with higher ratings.
 
 ##############################
 # 2.5 Models
@@ -420,4 +418,4 @@ table.results
 ##############################
 
 # [1] https://learning.edx.org/course/course-v1:HarvardX+PH125.9x+1T2021/block-v1:HarvardX+PH125.9x+1T2021+type@sequential+block@e8800e37aa444297a3a2f35bf84ce452/block-v1:HarvardX+PH125.9x+1T2021+type@vertical+block@e9abcdd945b1416098a15fc95807b5db retrieved in June 2021
-# [2] Irizarry, Introduction to Data Science, found at https://leanpub.com/datasciencebook retrieved in June, 2021
+# [2] Irizarry, Introduction to Data Science, 2019, found at https://leanpub.com/datasciencebook

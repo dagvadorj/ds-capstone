@@ -6,15 +6,13 @@
 
 ### 2.1 Loading data
 
-library(tidyverse)
-library(caret)
-library(data.table)
-library(lubridate)
-library(GGally)
-library(ggridges)
-library(ggthemes)
-library(rpart.plot)
-library(MASS)
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(ggridges)) install.packages("ggridges", repos = "http://cran.us.r-project.org")
+if(!require(ggthemes)) install.packages("ggthemes", repos = "http://cran.us.r-project.org")
+if(!require(rpart.plot)) install.packages("rpart.plot", repos = "http://cran.us.r-project.org")
+if(!require(MASS)) install.packages("MASS", repos = "http://cran.us.r-project.org")
 
 incomes <- fread(text = gsub("::", "\t", readLines(unzip("archive.zip", "adult.csv"))), col.names = c("age", "workclass", "fnlwgt", "education", "education.number", "marital.status", "occupation", "relationship", "race", "sex", "capital.gain", "capital.loss", "hours.per.week", "native.country", "income"))
 

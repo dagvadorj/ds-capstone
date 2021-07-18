@@ -1,10 +1,10 @@
-## Executive summary
+## 1 Executive summary
 
 # Thank you Mr. Irizarry and his team as well as the peers for the great opportunity of learning and validating my understanding of machine learning.
 
-## Data preparation
+## 2 Data preparation
 
-### Loading data
+### 2.1 Loading data
 
 library(tidyverse)
 library(caret)
@@ -48,7 +48,7 @@ incomes %>% ggplot(aes(marital.status, income, group = workclass)) + geom_boxplo
 
 incomes <- incomes %>% select(-capital.gain, -capital.loss, -fnlwgt)
 
-### Preparing data types
+### 2.2 Preparing data types
 
 # When we examine the data, we can see that some character data need to be converted to factor data type.
 
@@ -67,7 +67,12 @@ incomes <- incomes %>% mutate(workclass = as.factor(workclass), education = as.f
 
 summary(incomes)
 
-### Preparing the test and train sets
+# We see that there is no N/A or 0 data to clean in our data set using the colSums function.
+
+colSums(is.na(incomes))
+colSums(incomes == 0)
+
+### 2.3 Preparing the test and train sets
 
 set.seed(1, sample.kind = "Rounding")
 test_index <- createDataPartition(incomes$income, times = 1, p = 0.2, list = FALSE)
@@ -78,7 +83,7 @@ test_set <- incomes[test_index,]
 
 options(digits = 5)
 
-## Exploratory data analysis
+## 3 Exploratory data analysis
 
 for (j in 1:ncol(train_set)) {
   colname <- as.character(colnames(train_set)[j])
@@ -87,18 +92,13 @@ for (j in 1:ncol(train_set)) {
 
 incomes %>% ggplot(aes(occupation, fill = income)) + geom_bar()
 
-## Methods
+## 4 Methods
 
 # We can examine significant statistical figures of the column in incomes data set using the summary function.
 
 summary(incomes)
 
-# We see that there is no N/A or 0 data to clean in our data set using the colSums function.
-
-colSums(is.na(incomes))
-colSums(incomes == 0)
-
-### Variable selection
+### 4.1 Linear regression
 
 # Now we have 9 potential predictors. Our goal is to select the most meaningful predictors for building the best model. One way of doing this is to use step wise algorithm to test out the predictors. There are two kinds of stepwise search algorithm - backward search and forward search.
 
@@ -128,6 +128,8 @@ mean(pred.lm0 == test_set$income)
 # 0.82778
 
 # Unfortunately, eight predictors are too many and we will try to fit other models.
+
+### 4.2 Other models
 
 # Decision trees are a good way to understand how and in what order the output is affected by the predictors. There are several ways to construct
 # decision trees that account for different aspects of the predictors, their relations, and independent natures.
@@ -195,19 +197,12 @@ mean(pred.knn1 == test_set$income)
 
 # 0.81551
 
-model.knn2 <- train_set %>% train(income ~ education.number + marital.status, data = ., method = "knn")
+model.knn2 <- train_set %>% train(income ~ education.number + marital.status + occupation, data = ., method = "knn")
 model.knn2
 pred.knn2 <- predict(model.knn2, test_set)
 mean(pred.knn2 == test_set$income)
 
-# 0.81618
-
-model.knn3 <- train_set %>% train(income ~ education.number + marital.status + occupation, data = ., method = "knn")
-model.knn3
-pred.knn3 <- predict(model.knn3, test_set)
-mean(pred.knn3 == test_set$income)
-
-# 0.81999
+# 0.82065
 
 # We will use two more models to try to come up with a better accuracy.
 
@@ -226,18 +221,24 @@ confusionMatrix(pred.qda, test_set$income) # TODO mind for specificity and sensi
 
 # 0.73181
 
-### Specificity and sensitivity
+## Results
 
 as.numeric(confusionMatrix(pred.lm, test_set$income)$byClass["Sensitivity"])
 
 table.results <- data.frame()
 table.results <- rbind(table.results, data.frame(name = "Linear regression", accuracy = mean(pred.lm0 == test_set$income), sensitivity = as.numeric(confusionMatrix(pred.lm0, test_set$income)$byClass["Sensitivity"]), specificity = as.numeric(confusionMatrix(pred.lm0, test_set$income)$byClass["Specificity"])))
+table.results <- rbind(table.results, data.frame(name = "Recursive partitioning", accuracy = mean(pred.rpart == test_set$income), sensitivity = as.numeric(confusionMatrix(pred.rpart, test_set$income)$byClass["Sensitivity"]), specificity = as.numeric(confusionMatrix(pred.rpart, test_set$income)$byClass["Specificity"])))
+table.results <- rbind(table.results, data.frame(name = "KNN 0", accuracy = mean(pred.knn0 == test_set$income), sensitivity = as.numeric(confusionMatrix(pred.knn0, test_set$income)$byClass["Sensitivity"]), specificity = as.numeric(confusionMatrix(pred.knn0, test_set$income)$byClass["Specificity"])))
+table.results <- rbind(table.results, data.frame(name = "KNN 1", accuracy = mean(pred.knn1 == test_set$income), sensitivity = as.numeric(confusionMatrix(pred.knn1, test_set$income)$byClass["Sensitivity"]), specificity = as.numeric(confusionMatrix(pred.knn1, test_set$income)$byClass["Specificity"])))
+table.results <- rbind(table.results, data.frame(name = "KNN 2", accuracy = mean(pred.knn2 == test_set$income), sensitivity = as.numeric(confusionMatrix(pred.knn2, test_set$income)$byClass["Sensitivity"]), specificity = as.numeric(confusionMatrix(pred.knn2, test_set$income)$byClass["Specificity"])))
+table.results <- rbind(table.results, data.frame(name = "LDA", accuracy = mean(pred.lda == test_set$income), sensitivity = as.numeric(confusionMatrix(pred.lda, test_set$income)$byClass["Sensitivity"]), specificity = as.numeric(confusionMatrix(pred.lda, test_set$income)$byClass["Specificity"])))
+table.results <- rbind(table.results, data.frame(name = "QDA", accuracy = mean(pred.qda == test_set$income), sensitivity = as.numeric(confusionMatrix(pred.qda, test_set$income)$byClass["Sensitivity"]), specificity = as.numeric(confusionMatrix(pred.qda, test_set$income)$byClass["Specificity"])))
 
 table.results
 
-## Results
-
 ## Conclusion
+
+# We note that however it has has too many predictors, the linear regression model with eight predictors performed the best. We have tried to beat this model using KNN, QDA, and LDA models - models that do well with many predictors. However, in the end the linear regression model has the best accuracy. Moreover, the linear model has similar sensitivities and specificities with the other models. In other words, the model is not lagging from the other models in this area as well. If our data set included many numeric predictors in other words if the important socio-economic and demographic predictors were numeric, we would have chance to implement different analyses of clustering, matrix factorization, and component analysis as we learned in the course. I am looking forward to implement these methods and analysis for other data sets in the future. I would like to again thank Mr.Irizarry and his staff for the great opportunity.
 
 ## References
 

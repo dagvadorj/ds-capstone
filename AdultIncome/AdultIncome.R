@@ -6,6 +6,8 @@
 
 ### 2.1 Loading data
 
+# Include libraries
+
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
@@ -13,6 +15,27 @@ if(!require(ggridges)) install.packages("ggridges", repos = "http://cran.us.r-pr
 if(!require(ggthemes)) install.packages("ggthemes", repos = "http://cran.us.r-project.org")
 if(!require(rpart.plot)) install.packages("rpart.plot", repos = "http://cran.us.r-project.org")
 if(!require(MASS)) install.packages("MASS", repos = "http://cran.us.r-project.org")
+if(!require(RCurl)) install.packages("RCurl", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+library(ggridges)
+library(ggthemes)
+library(rpart.plot)
+library(MASS)
+library(RCurl)
+
+# Download data
+
+library(httr)
+dataset <- httr::GET("https://www.kaggle.com/api/v1/competitions/data/download/10445/train.csv", 
+                     httr::authenticate(username, authkey, type = "basic"))
+
+temp <- tempfile()
+download.file(dataset$url,temp)
+data <- read.csv(unz(temp, "train.csv"))
+unlink(temp)
 
 incomes <- fread(text = gsub("::", "\t", readLines(unzip("archive.zip", "adult.csv"))), col.names = c("age", "workclass", "fnlwgt", "education", "education.number", "marital.status", "occupation", "relationship", "race", "sex", "capital.gain", "capital.loss", "hours.per.week", "native.country", "income"))
 
@@ -41,8 +64,6 @@ hist(incomes$capital.loss)
 # Quick glance at education and education.number predictors makes it easy to see that the education.number is a one-to-one numerical representation of education. I will use education for exploratory data analysis and education.number for model fitting since education is more user-friendly because it is easilty readable and education.number is numeric and also shows the degree of education.
 
 incomes %>% arrange(education.number) %>% ggplot(aes(education, education.number)) + geom_point()
-
-incomes %>% ggplot(aes(marital.status, income, group = workclass)) + geom_boxplot()
 
 incomes <- incomes %>% select(-capital.gain, -capital.loss, -fnlwgt)
 
@@ -83,18 +104,32 @@ options(digits = 5)
 
 ## 3 Exploratory data analysis
 
+# We can examine significant statistical figures of the column in incomes data set using the summary function.
+
+summary(incomes)
+
+# We can also examine the histogram of each predictor.
+
 for (j in 1:ncol(train_set)) {
   colname <- as.character(colnames(train_set)[j])
   print(train_set %>% ggplot(aes_string(colname)) + geom_histogram(stat = "count", color = "pink"))
 }
 
-incomes %>% ggplot(aes(occupation, fill = income)) + geom_bar()
+# In the following diagram we see the numbers of income information for each occupation sorted by the occupation with most data to the one with least. The percentage of income factors (more than 50k and less than or equal to 50k) for occupations are different for each occupation.
+
+train_set %>% mutate(occupation = fct_reorder(occupation, income, .fun = 'length')) %>% ggplot(aes(occupation, fill = income)) + geom_bar()
+
+# There is definitely some correlation between education and income. People with doctorate seem to have higher income regardless of the work class.
+
+train_set %>% mutate(workclass = fct_reorder(workclass, income, .fun = 'length')) %>% ggplot(aes(workclass, fill = income)) + geom_bar(position = "fill") + facet_wrap(~education, ncol = 3)
+
+# There is a higher percentage of married people who have higher income. People with some high school have less than 50k income except when they are self-employed.
+
+train_set %>% mutate(marital.status = fct_reorder(marital.status, income, .fun = 'length')) %>% ggplot(aes(marital.status, fill = income)) + geom_bar(stat = "count", position = "dodge") + geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, position = position_dodge(.9))
+
+# age + relationship + race + sex + hours.per.week + native.country
 
 ## 4 Methods
-
-# We can examine significant statistical figures of the column in incomes data set using the summary function.
-
-summary(incomes)
 
 ### 4.1 Linear regression
 

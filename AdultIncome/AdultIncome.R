@@ -1,6 +1,13 @@
+# @author Dagvadorj Galbadrakh <galbadrakh@itu.edu.tr>
+# Model fitting for the adult census income data set
+
 ## 1 Executive summary
 
-# Thank you Mr. Irizarry and his team as well as the peers for the great opportunity of learning and validating my understanding of machine learning.
+# In order to practice data wrangling, exploratory data analysis, and model fitting, Adult Census Income [2] data set is used. The data set includes income information as classification that consists of whether the income is more than or less than 50k per annum for people whose socio-economic and demographic information is provided. The purpose of this work is to download and prepare the data, study the variables, and try to fit models that accurately predict the income based on the saocio-economic and demographic predictors.
+# First, the data set is downloaded from the Internet and uncertain data are filtered out. Classification data are converted into factors from characters. The data set is divided into training and test sets where a random selection of 80% of the data are stored in the training set in order to train and fit models while the rest are stored in the test set so that we can validate the accuracy of each model.
+# After that, we explored and visualized the data and how the predictors and the outcomes relate using the ggplot library.
+# Finally, we started fitting models for our data set. In doing so we fit linear models and used search algorithms to understand which variables bore the model with more quality. In order to cross validate our analysis, we also used a form of decision tree called the recursive partitioning algorithm to study the importance of the variables. Based on these analyses, we futher tried out KNN, LDA, and QDA models which are suitable for the nature of the data set which has many classification predictors.
+# I would like to thank Mr. Irizarry and his team as well as the peers for the great opportunity of learning and validating my understanding of machine learning.
 
 ## 2 Data preparation
 
@@ -28,16 +35,7 @@ library(RCurl)
 
 # Download data
 
-library(httr)
-dataset <- httr::GET("https://www.kaggle.com/api/v1/competitions/data/download/10445/train.csv", 
-                     httr::authenticate(username, authkey, type = "basic"))
-
-temp <- tempfile()
-download.file(dataset$url,temp)
-data <- read.csv(unz(temp, "train.csv"))
-unlink(temp)
-
-incomes <- fread(text = gsub("::", "\t", readLines(unzip("archive.zip", "adult.csv"))), col.names = c("age", "workclass", "fnlwgt", "education", "education.number", "marital.status", "occupation", "relationship", "race", "sex", "capital.gain", "capital.loss", "hours.per.week", "native.country", "income"))
+incomes <- read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data", col_names = c("age", "workclass", "fnlwgt", "education", "education.number", "marital.status", "occupation", "relationship", "race", "sex", "capital.gain", "capital.loss", "hours.per.week", "native.country", "income"))
 
 str(incomes)
 dim(incomes)
@@ -58,14 +56,14 @@ colSums(incomes == "?")
 
 # Furthermore, the capital gain and capital loss predictors do not seem to characterize the data very well as there is no balance or diversification accross our data. Hence, we will not be using these predictors as well.
 
-hist(incomes$capital.loss)
+hist(incomes$capital.gain)
 hist(incomes$capital.loss)
 
 # Quick glance at education and education.number predictors makes it easy to see that the education.number is a one-to-one numerical representation of education. I will use education for exploratory data analysis and education.number for model fitting since education is more user-friendly because it is easilty readable and education.number is numeric and also shows the degree of education.
 
 incomes %>% arrange(education.number) %>% ggplot(aes(education, education.number)) + geom_point()
 
-incomes <- incomes %>% select(-capital.gain, -capital.loss, -fnlwgt)
+incomes <- incomes %>% dplyr::select(-capital.gain, -capital.loss, -fnlwgt)
 
 ### 2.2 Preparing data types
 
@@ -127,7 +125,13 @@ train_set %>% mutate(workclass = fct_reorder(workclass, income, .fun = 'length')
 
 train_set %>% mutate(marital.status = fct_reorder(marital.status, income, .fun = 'length')) %>% ggplot(aes(marital.status, fill = income)) + geom_bar(stat = "count", position = "dodge") + geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, position = position_dodge(.9))
 
-# age + relationship + race + sex + hours.per.week + native.country
+# For the relationship husband the more hours worked per day the more higher income is observed. The same does not hold for the relationship wife. 
+
+train_set %>% ggplot(aes(hours.per.week, age, color = income)) + geom_point() + facet_wrap(~relationship) + scale_color_colorblind()
+
+# For government positions, there are less people with older age and the also there are less people working more hours per week. Moreover, it seems the older the age the more higher payment for the government positions are observed. There seems less correlation between age and income among self employed and private work classes.
+
+train_set %>% mutate(hours.per.week = cut(hours.per.week, c(0, 20, 40, 60, 80))) %>% ggplot(aes(hours.per.week, age, color = income)) + geom_point() + facet_wrap(~workclass) + scale_color_colorblind()
 
 ## 4 Methods
 
@@ -142,18 +146,18 @@ model.full <- glm(income ~ age + workclass + education.number + marital.status +
 model.step.backward <- stepAIC(model.full, direction = "backward")
 model.step.backward
 
-# The backward search algorithm removes only the race predictor and leaves out the other eight predictors: age + workclass + education.number + marital.status + occupation + relationship + sex + hours.per.week + native.country
+# The backward search algorithm removes only the native.country predictor and leaves out the other nine predictors: age + workclass + education.number + marital.status + occupation + relationship + sex + hours.per.week + race
 
 # The forward search algorithm starts from a model without any predictors and tries to add predictors one by one while increasing the quality of the model represented by AIC [3].
 
 model.step.forward <- stepAIC(glm(income ~ 1, data = train_set, family="binomial"), direction = "forward", scope = income ~ age + workclass + education.number + marital.status + occupation + relationship + race + sex + hours.per.week + native.country)
 model.step.forward
 
-# The forward search algorithm omits only the race predictor and adds other eight predictors: age + workclass + education.number + marital.status + occupation + relationship + sex + hours.per.week + native.country just like the backward search algorithm.
+# The forward search algorithm omits only the native.country predictor and adds other nine predictors: age + workclass + education.number + marital.status + occupation + relationship + sex + hours.per.week + race just like the backward search algorithm.
 
 # We will check out the accuracy of linear regression model with abovementioned predictors.
 
-model.lm0 <- train_set %>% train(income ~ age + workclass + education.number + marital.status + occupation + relationship + sex + hours.per.week + native.country, data = ., method = "glm")
+model.lm0 <- train_set %>% train(income ~ age + workclass + education.number + marital.status + occupation + relationship + sex + hours.per.week + race, data = ., method = "glm")
 model.lm0
 pred.lm0 <- predict(model.lm0, test_set)
 mean(pred.lm0 == test_set$income)
@@ -169,7 +173,7 @@ mean(pred.lm0 == test_set$income)
 # Recursive partitioning can be used to understand the importance of the predictors. The great thing about the recursive partitioning is that it recursively try out different orders of the predictors in order to come up with the best accuracy. 
 # The caret package includes train function can is capable of training data set using different algorithms with different tuning options. Here I will use first the rpart algorithm to construct and study the predictors and try to understand which predictor(s) have more effect on the output.
 
-model.rpart <- train_set %>% train(income ~ age + workclass + education.number + marital.status + occupation + relationship + race + sex + hours.per.week + native.country, data = ., method = "rpart")
+model.rpart <- train_set %>% train(income ~ age + workclass + education.number + marital.status + occupation + relationship + race + sex + hours.per.week + race, data = ., method = "rpart")
 
 pred.rpart <- predict(model.rpart, test_set)
 mean(pred.rpart == test_set$income)

@@ -3,7 +3,7 @@
 
 ## 1 Executive summary
 
-# In order to practice data wrangling, exploratory data analysis, and model fitting, Adult Census Income [2] data set is used. The data set includes income information as classification that consists of whether the income is more than or less than 50k per annum for people whose socio-economic and demographic information is provided. The purpose of this work is to download and prepare the data, study the variables, and try to fit models that accurately predict the income based on the saocio-economic and demographic predictors.
+# In order to practice data wrangling, exploratory data analysis, and model fitting, Adult Census Income [2] data set is used. The data set includes income information as classification that consists of whether the income is more than or less than 50k per annum for people whose socio-economic and demographic information is provided. The purpose of this work is to download and prepare the data, study the variables, and try to fit models that accurately predict the income based on the socio-economic and demographic predictors.
 # First, the data set is downloaded from the Internet and uncertain data are filtered out. Classification data are converted into factors from characters. The data set is divided into training and test sets where a random selection of 80% of the data are stored in the training set in order to train and fit models while the rest are stored in the test set so that we can validate the accuracy of each model.
 # After that, we explored and visualized the data and how the predictors and the outcomes relate using the ggplot library.
 # Finally, we started fitting models for our data set. In doing so we fit linear models and used search algorithms to understand which variables bore the model with more quality. In order to cross validate our analysis, we also used a form of decision tree called the recursive partitioning algorithm to study the importance of the variables. Based on these analyses, we futher tried out KNN, LDA, and QDA models which are suitable for the nature of the data set which has many classification predictors.
@@ -162,8 +162,6 @@ model.lm0
 pred.lm0 <- predict(model.lm0, test_set)
 mean(pred.lm0 == test_set$income)
 
-# 0.82778
-
 # Unfortunately, eight predictors are too many and we will try to fit other models.
 
 ### 4.2 Other models
@@ -177,8 +175,6 @@ model.rpart <- train_set %>% train(income ~ age + workclass + education.number +
 
 pred.rpart <- predict(model.rpart, test_set)
 mean(pred.rpart == test_set$income)
-
-# 0.82032
 
 # According to rpart model, the importance of the predictors for the output are:
 
@@ -196,21 +192,15 @@ model.lm
 pred.lm <- predict(model.lm, test_set)
 mean(pred.lm == test_set$income)
 
-# 0.81551
-
 model.lm <- train_set %>% train(income ~ education.number + marital.status + age, data = ., method = "glm")
 model.lm
 coef(model.lm)
 pred.lm <- predict(model.lm, test_set)
 mean(pred.lm == test_set$income)
 
-# 0.81717
-
 model.lm <- train_set %>% train(income ~ education.number + marital.status, data = ., method = "glm")
 pred.lm <- predict(model.lm, test_set)
 mean(pred.lm == test_set$income)
-
-# 0.81717
 
 model.lm <- train_set %>% train(income ~ education.number + occupation + hours.per.week * education.number, data = ., method = "glm")
 pred.lm <- predict(model.lm, test_set)
@@ -223,8 +213,6 @@ model.knn0
 pred.knn0 <- predict(model.knn0, test_set)
 mean(pred.knn0 == test_set$income)
 
-# 0.80491
-
 # We also note that using other sets of the important variables produce slightly better accuracy.
 
 model.knn1 <- train_set %>% train(income ~ education.number + marital.status + age, data = ., method = "knn")
@@ -232,14 +220,10 @@ model.knn1
 pred.knn1 <- predict(model.knn1, test_set)
 mean(pred.knn1 == test_set$income)
 
-# 0.81551
-
 model.knn2 <- train_set %>% train(income ~ education.number + marital.status + occupation, data = ., method = "knn")
 model.knn2
 pred.knn2 <- predict(model.knn2, test_set)
 mean(pred.knn2 == test_set$income)
-
-# 0.82065
 
 # We will use two more models to try to come up with a better accuracy.
 
@@ -248,15 +232,11 @@ model.lda
 pred.lda <- predict(model.lda, test_set)
 mean(pred.lda == test_set$income)
 
-# 0.81518
-
 model.qda <- train_set %>% train(income ~ education.number + marital.status + age, data = ., method = "qda")
 model.qda
 pred.qda <- predict(model.qda, test_set)
 mean(pred.qda == test_set$income)
 confusionMatrix(pred.qda, test_set$income) # TODO mind for specificity and sensitivity
-
-# 0.73181
 
 ## Results
 
